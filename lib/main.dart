@@ -274,6 +274,28 @@ class _GameListScreenState extends State<GameListScreen> {
     _saveGames();
   }
 
+  Future<bool> _confirmDeleteGame() async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('Delete Game'),
+        content: const Text('Are you sure you want to delete this game? This action cannot be undone.'),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            child: const Text('Delete'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);
@@ -402,17 +424,32 @@ class _GameListScreenState extends State<GameListScreen> {
                       itemCount: _filteredGames.length,
                       itemBuilder: (context, index) {
                         final game = _filteredGames[index];
-                        return GestureDetector(
-                          onLongPress: () => _editGameNameFromList(game),
-                          child: CupertinoListTile(
-                            title: Text(game.name),
-                            subtitle: Text(_formatDate(game.lastModified)),
-                            trailing: CupertinoButton(
-                              padding: EdgeInsets.zero,
-                              child: const Icon(CupertinoIcons.chevron_right),
-                              onPressed: () => _showGameDetail(game),
+                        return Dismissible(
+                          key: ValueKey(game.id),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            color: CupertinoColors.destructiveRed,
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 20),
+                            child: const Icon(
+                              CupertinoIcons.delete,
+                              color: CupertinoColors.white,
                             ),
-                            onTap: () => _showGameDetail(game),
+                          ),
+                          confirmDismiss: (_) => _confirmDeleteGame(),
+                          onDismissed: (_) => _deleteGame(game),
+                          child: GestureDetector(
+                            onLongPress: () => _editGameNameFromList(game),
+                            child: CupertinoListTile(
+                              title: Text(game.name),
+                              subtitle: Text(_formatDate(game.lastModified)),
+                              trailing: CupertinoButton(
+                                padding: EdgeInsets.zero,
+                                child: const Icon(CupertinoIcons.chevron_right),
+                                onPressed: () => _showGameDetail(game),
+                              ),
+                              onTap: () => _showGameDetail(game),
+                            ),
                           ),
                         );
                       },
@@ -623,19 +660,19 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   void _deleteGame() {
     showCupertinoDialog(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
+      builder: (dialogContext) => CupertinoAlertDialog(
         title: const Text('Delete Game'),
         content: const Text('Are you sure you want to delete this game? This action cannot be undone.'),
         actions: [
           CupertinoDialogAction(
             child: const Text('Cancel'),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
           ),
           CupertinoDialogAction(
             isDestructiveAction: true,
             child: const Text('Delete'),
             onPressed: () async {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               final prefs = await SharedPreferences.getInstance();
               final gamesJson = prefs.getStringList('games') ?? [];
               
@@ -649,6 +686,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               widget.onGameUpdated();
               
               // Navigate back to the game list
+              if (!mounted) return;
               Navigator.of(context).pop();
             },
           ),
@@ -867,7 +905,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
   double _getColumnWidth(Player player) {
     final maxWidth = _getLargestNumberInColumn(player);
-    return math.max(110.0, maxWidth + 20.0);
+    // Add extra space for the "+" button (20px icon + 8px spacing + 16px padding)
+    return math.max(110.0, maxWidth + 44.0);
   }
 
   @override
@@ -1228,6 +1267,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   
                   // Sticky Add Round button
                   Container(
+                    width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: const BoxDecoration(
                       color: Color(0xFFFEFEFE),
@@ -1252,9 +1292,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                               ),
                             ],
                           )
-                        : CupertinoButton.filled(
-                            child: const Text('Add Round'),
-                            onPressed: _addNewRound,
+                        : Center(
+                            child: CupertinoButton.filled(
+                              child: const Text('Add Round'),
+                              onPressed: _addNewRound,
+                            ),
                           ),
                   ),
                 ],
@@ -1350,7 +1392,7 @@ class TableGridPainter extends CustomPainter {
           return playerScores.length > max ? playerScores.length : max;
         });
         
-        final rowHeight = math.max(60.0, maxScores * 22.0);
+        final rowHeight = math.max(isEditMode ? 80.0 : 60.0, maxScores * 22.0);
         currentY += rowHeight;
       }
     }
