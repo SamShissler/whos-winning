@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:convert';
@@ -8,18 +9,81 @@ void main() {
   runApp(const ScoresheetApp());
 }
 
-class ScoresheetApp extends StatelessWidget {
+enum AppearanceMode { system, light, dark }
+
+// User preferences, saved to SharedPreferences. Screens listen to this so
+// changes apply immediately everywhere.
+class AppSettings extends ChangeNotifier {
+  double scoreFontSize = ScoreSheetMetrics.defaultFontSize;
+  AppearanceMode appearance = AppearanceMode.system;
+
+  // null lets the app follow the system setting
+  Brightness? get brightness => switch (appearance) {
+        AppearanceMode.system => null,
+        AppearanceMode.light => Brightness.light,
+        AppearanceMode.dark => Brightness.dark,
+      };
+
+  Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    scoreFontSize = prefs.getDouble('scoreFontSize') ?? scoreFontSize;
+    final appearanceName = prefs.getString('appearance');
+    appearance = AppearanceMode.values.firstWhere(
+      (mode) => mode.name == appearanceName,
+      orElse: () => AppearanceMode.system,
+    );
+    notifyListeners();
+  }
+
+  Future<void> setScoreFontSize(double fontSize) async {
+    scoreFontSize = fontSize;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('scoreFontSize', fontSize);
+  }
+
+  Future<void> setAppearance(AppearanceMode mode) async {
+    appearance = mode;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('appearance', mode.name);
+  }
+}
+
+class ScoresheetApp extends StatefulWidget {
   const ScoresheetApp({super.key});
 
   @override
+  State<ScoresheetApp> createState() => _ScoresheetAppState();
+}
+
+class _ScoresheetAppState extends State<ScoresheetApp> {
+  final AppSettings _settings = AppSettings();
+
+  @override
+  void initState() {
+    super.initState();
+    _settings.load();
+  }
+
+  @override
+  void dispose() {
+    _settings.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return CupertinoApp(
-      title: 'Scoresheet',
-      theme: const CupertinoThemeData(
-        primaryColor: CupertinoColors.systemBlue,
-        brightness: Brightness.light,
+    return ListenableBuilder(
+      listenable: _settings,
+      builder: (context, _) => CupertinoApp(
+        title: 'Scoresheet',
+        theme: CupertinoThemeData(
+          primaryColor: CupertinoColors.systemBlue,
+          brightness: _settings.brightness,
+        ),
+        home: GameListScreen(settings: _settings),
       ),
-      home: const GameListScreen(),
     );
   }
 }
@@ -162,7 +226,9 @@ class ScoreEntry {
 }
 
 class GameListScreen extends StatefulWidget {
-  const GameListScreen({super.key});
+  final AppSettings settings;
+
+  const GameListScreen({super.key, required this.settings});
 
   @override
   State<GameListScreen> createState() => _GameListScreenState();
@@ -177,6 +243,14 @@ class _GameListScreenState extends State<GameListScreen> {
   void initState() {
     super.initState();
     _loadGames();
+  }
+
+  void _showSettings() {
+    Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (context) => SettingsScreen(settings: widget.settings),
+      ),
+    );
   }
 
   @override
@@ -366,6 +440,11 @@ class _GameListScreenState extends State<GameListScreen> {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
+        leading: CupertinoButton(
+          padding: EdgeInsets.zero,
+          child: const Icon(CupertinoIcons.settings),
+          onPressed: _showSettings,
+        ),
         middle: const Text('Games'),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
@@ -467,7 +546,193 @@ class _GameListScreenState extends State<GameListScreen> {
         builder: (context) => GameDetailScreen(
           game: game,
           onGameUpdated: _loadGames,
+          settings: widget.settings,
         ),
+      ),
+    );
+  }
+}
+
+class SettingsScreen extends StatefulWidget {
+  final AppSettings settings;
+
+  const SettingsScreen({super.key, required this.settings});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  static const double _minFontSize = 12.0;
+  static const double _maxFontSize = 28.0;
+
+  // Follows the slider while dragging; saved to settings when the drag ends
+  late double _fontSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _fontSize = widget.settings.scoreFontSize.clamp(_minFontSize, _maxFontSize);
+  }
+
+  Widget _buildAppearanceOption(String title, AppearanceMode mode) {
+    return CupertinoListTile(
+      title: Text(title),
+      trailing: widget.settings.appearance == mode
+          ? const Icon(CupertinoIcons.check_mark)
+          : null,
+      onTap: () => widget.settings.setAppearance(mode),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.settings,
+      builder: (context, _) => _buildPage(context),
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
+    final metrics = ScoreSheetMetrics.of(context, fontSize: _fontSize);
+
+    return CupertinoPageScaffold(
+      backgroundColor: CupertinoColors.systemGroupedBackground,
+      navigationBar: const CupertinoNavigationBar(
+        middle: Text('Settings'),
+      ),
+      child: SafeArea(
+        child: ListView(
+          children: [
+            CupertinoListSection.insetGrouped(
+              header: const Text('APPEARANCE'),
+              children: [
+                _buildAppearanceOption('Use System Setting', AppearanceMode.system),
+                _buildAppearanceOption('Light', AppearanceMode.light),
+                _buildAppearanceOption('Dark', AppearanceMode.dark),
+              ],
+            ),
+            CupertinoListSection.insetGrouped(
+              header: const Text('SCORE SHEET'),
+              footer: const Text('Changes the size of scores and labels in the score table.'),
+              children: [
+                CupertinoListTile(
+                  title: const Text('Font Size'),
+                  additionalInfo: Text('${_fontSize.round()} pt'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      const Text('A', style: TextStyle(fontSize: 14)),
+                      Expanded(
+                        child: CupertinoSlider(
+                          value: _fontSize,
+                          min: _minFontSize,
+                          max: _maxFontSize,
+                          divisions: ((_maxFontSize - _minFontSize) / 2).round(),
+                          onChanged: (value) {
+                            setState(() {
+                              _fontSize = value;
+                            });
+                          },
+                          onChangeEnd: widget.settings.setScoreFontSize,
+                        ),
+                      ),
+                      const Text('A', style: TextStyle(fontSize: 24)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            CupertinoListSection.insetGrouped(
+              header: const Text('PREVIEW'),
+              children: [
+                _ScoreCellPreview(metrics: metrics),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// A round label beside a score cell holding two scores and a blank line,
+// sized exactly as the score table would draw it
+class _ScoreCellPreview extends StatelessWidget {
+  final ScoreSheetMetrics metrics;
+
+  const _ScoreCellPreview({required this.metrics});
+
+  @override
+  Widget build(BuildContext context) {
+    const scores = [12, 5];
+    final columnWidth = math.max(
+      metrics.minColumnWidth,
+      metrics.textWidth('17', metrics.totalStyle) + metrics.scoreCellPadding.horizontal + 4.0 * metrics.scale,
+    );
+    final rowHeight = (scores.length + 1) * metrics.scoreLineHeight + metrics.scoreCellPadding.vertical;
+
+    return Container(
+      color: metrics.paperColor,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: metrics.labelColumnWidth,
+                height: rowHeight,
+                child: Center(child: Text('Round 1', style: metrics.labelStyle)),
+              ),
+              Container(
+                width: columnWidth,
+                height: rowHeight,
+                padding: metrics.scoreCellPadding,
+                decoration: BoxDecoration(
+                  border: Border(left: BorderSide(color: metrics.inkColor, width: 2.0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (final score in scores)
+                      SizedBox(
+                        height: metrics.scoreLineHeight,
+                        child: Text('$score', style: metrics.scoreStyle, textAlign: TextAlign.end),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Container(
+            width: metrics.labelColumnWidth + columnWidth,
+            height: metrics.totalRowHeight,
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: metrics.inkColor, width: 1.0)),
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: metrics.labelColumnWidth,
+                  child: Center(child: Text('Total', style: metrics.labelStyle)),
+                ),
+                Container(
+                  width: columnWidth,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4) * metrics.scale,
+                  decoration: BoxDecoration(
+                    border: Border(left: BorderSide(color: metrics.inkColor, width: 2.0)),
+                  ),
+                  child: Text('17', style: metrics.totalStyle, textAlign: TextAlign.end),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -476,11 +741,13 @@ class _GameListScreenState extends State<GameListScreen> {
 class GameDetailScreen extends StatefulWidget {
   final Game game;
   final VoidCallback onGameUpdated;
+  final AppSettings settings;
 
   const GameDetailScreen({
     super.key,
     required this.game,
     required this.onGameUpdated,
+    required this.settings,
   });
 
   @override
@@ -695,6 +962,33 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     );
   }
 
+  // Number pad entry with a +/- button, since the iOS number pad has no minus key
+  Widget _buildScoreField(TextEditingController controller, ValueChanged<String> onSubmitted) {
+    return CupertinoTextField(
+      controller: controller,
+      placeholder: 'Score',
+      keyboardType: TextInputType.number,
+      autofocus: true,
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'^-?\d*')),
+      ],
+      prefix: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: Size.zero,
+        child: const Text('+/−'),
+        onPressed: () {
+          final text = controller.text;
+          final flipped = text.startsWith('-') ? text.substring(1) : '-$text';
+          controller.value = TextEditingValue(
+            text: flipped,
+            selection: TextSelection.collapsed(offset: flipped.length),
+          );
+        },
+      ),
+      onSubmitted: onSubmitted,
+    );
+  }
+
   void _addScore(Round round, Player player) {
     final scoreController = TextEditingController();
 
@@ -704,17 +998,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         title: Text('Add Score - ${player.name}'),
         content: Padding(
           padding: const EdgeInsets.only(top: 12.0),
-          child: CupertinoTextField(
-            controller: scoreController,
-            placeholder: 'Score',
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            onSubmitted: (value) {
-              final score = int.tryParse(value) ?? 0;
-              _addScoreEntry(round, player, score);
-              Navigator.of(context).pop();
-            },
-          ),
+          child: _buildScoreField(scoreController, (value) {
+            final score = int.tryParse(value) ?? 0;
+            _addScoreEntry(round, player, score);
+            Navigator.of(context).pop();
+          }),
         ),
         actions: [
           CupertinoDialogAction(
@@ -762,17 +1050,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         title: Text('Edit Score - ${player.name}'),
         content: Padding(
           padding: const EdgeInsets.only(top: 12.0),
-          child: CupertinoTextField(
-            controller: scoreController,
-            placeholder: 'Score',
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            onSubmitted: (value) {
-              final score = int.tryParse(value) ?? 0;
-              _updateScoreEntry(round, player, scoreIndex, score);
-              Navigator.of(context).pop();
-            },
-          ),
+          child: _buildScoreField(scoreController, (value) {
+            final score = int.tryParse(value) ?? 0;
+            _updateScoreEntry(round, player, scoreIndex, score);
+            Navigator.of(context).pop();
+          }),
         ),
         actions: [
           CupertinoDialogAction(
@@ -861,56 +1143,50 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     return runningTotal;
   }
 
-  double _getLargestNumberInColumn(Player player) {
+  double _getLargestNumberInColumn(Player player, ScoreSheetMetrics metrics) {
     double maxWidth = 0.0;
-    
+
     // Check all rounds for this player's scores
     for (final round in game.rounds) {
       final playerScores = round.scores[player.id] ?? [];
       for (final score in playerScores) {
-        final scoreText = '${score.score}';
-        final textPainter = TextPainter(
-          text: TextSpan(
-            text: scoreText,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        );
-        textPainter.layout();
-        maxWidth = math.max(maxWidth, textPainter.width);
+        maxWidth = math.max(maxWidth, metrics.textWidth('${score.score}', metrics.scoreStyle));
       }
-      
+
       // Also check the running total
       final total = _calculateRoundSubtotal(round, player);
-      final totalText = '$total';
-      final totalPainter = TextPainter(
-        text: TextSpan(
-          text: totalText,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      totalPainter.layout();
-      maxWidth = math.max(maxWidth, totalPainter.width);
+      maxWidth = math.max(maxWidth, metrics.textWidth('$total', metrics.totalStyle));
     }
-    
+
     return maxWidth;
   }
 
-  double _getColumnWidth(Player player) {
-    final maxWidth = _getLargestNumberInColumn(player);
-    // Add extra space for the "+" button (20px icon + 8px spacing + 16px padding)
-    return math.max(110.0, maxWidth + 44.0);
+  double _getColumnWidth(Player player, ScoreSheetMetrics metrics) {
+    final maxWidth = _getLargestNumberInColumn(player, metrics);
+
+    // Fit the team name on one line where possible; longer names wrap
+    final nameWidth = math.min(
+      metrics.maxNameWidth,
+      metrics.textWidth(player.name, metrics.totalStyle) + 16.0 * metrics.scale,
+    );
+
+    // Add extra space for the cell's horizontal padding
+    final scoresWidth = maxWidth + metrics.scoreCellPadding.horizontal + 4.0 * metrics.scale;
+    return math.max(metrics.minColumnWidth, math.max(nameWidth, scoresWidth));
   }
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.settings,
+      builder: (context, _) => _buildPage(context),
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
+    final metrics = ScoreSheetMetrics.of(context, fontSize: widget.settings.scoreFontSize);
+    double columnWidth(Player player) => _getColumnWidth(player, metrics);
+
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: GestureDetector(
@@ -1011,7 +1287,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                             ),
                           )
                         : Container(
-                            color: const Color(0xFFFEFEFE),
+                            color: metrics.paperColor,
                             child: SingleChildScrollView(
                               scrollDirection: Axis.vertical,
                               child: SingleChildScrollView(
@@ -1020,34 +1296,31 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                   painter: TableGridPainter(
                                     players: game.players,
                                     rounds: game.rounds,
-                                    getColumnWidth: _getColumnWidth,
+                                    getColumnWidth: columnWidth,
                                     isEditMode: isEditMode,
+                                    metrics: metrics,
                                   ),
                                   child: Column(
                                     children: [
                                       // Header row with team names
                                       Container(
-                                        height: isEditMode ? 90 : 60,
+                                        height: metrics.headerHeight(isEditMode),
                                         child: Row(
                                           children: [
                                             // Empty corner cell
                                             Container(
-                                              width: 100,
-                                              child: const Center(
+                                              width: metrics.labelColumnWidth,
+                                              child: Center(
                                                 child: Text(
                                                   '',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 16,
-                                                    color: Color(0xFF2C2C2C),
-                                                  ),
+                                                  style: metrics.totalStyle,
                                                 ),
                                               ),
                                             ),
                                             // Team name columns
                                             ...game.players.map((player) {
                                               return Container(
-                                                width: _getColumnWidth(player),
+                                                width: columnWidth(player),
                                                 child: Center(
                                                   child: isEditMode
                                                       ? Column(
@@ -1057,11 +1330,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                                               player.name.length > 20 
                                                                   ? '${player.name.substring(0, 20)}...' 
                                                                   : player.name,
-                                                              style: const TextStyle(
-                                                                fontWeight: FontWeight.bold,
-                                                                fontSize: 16,
-                                                                color: Color(0xFF2C2C2C),
-                                                              ),
+                                                              style: metrics.totalStyle,
                                                               textAlign: TextAlign.center,
                                                               maxLines: 2,
                                                               overflow: TextOverflow.ellipsis,
@@ -1069,9 +1338,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                                             const SizedBox(height: 1),
                                                             CupertinoButton(
                                                               padding: EdgeInsets.zero,
-                                                              child: const Icon(
+                                                              child: Icon(
                                                                 CupertinoIcons.delete,
-                                                                size: 16,
+                                                                size: metrics.iconSize,
                                                                 color: CupertinoColors.destructiveRed,
                                                               ),
                                                               onPressed: () => _deleteTeam(player),
@@ -1082,11 +1351,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                                           player.name.length > 20 
                                                                   ? '${player.name.substring(0, 20)}...' 
                                                                   : player.name,
-                                                          style: const TextStyle(
-                                                            fontWeight: FontWeight.bold,
-                                                            fontSize: 16,
-                                                            color: Color(0xFF2C2C2C),
-                                                          ),
+                                                          style: metrics.totalStyle,
                                                           textAlign: TextAlign.center,
                                                           maxLines: 2,
                                                           overflow: TextOverflow.ellipsis,
@@ -1106,7 +1371,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                       
                                         if (isSubtotal) {
                                           // Subtotal row - fixed height since it only contains one value
-                                          final rowHeight = 40.0;
+                                          final rowHeight = metrics.totalRowHeight;
                                           
                                           return Container(
                                             height: rowHeight,
@@ -1114,31 +1379,23 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                               children: [
                                                 // Subtotal label
                                                 Container(
-                                                  width: 100,
-                                                  child: const Center(
+                                                  width: metrics.labelColumnWidth,
+                                                  child: Center(
                                                     child: Text(
                                                       'Total',
-                                                      style: TextStyle(
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 14,
-                                                        color: Color(0xFF2C2C2C),
-                                                      ),
+                                                      style: metrics.labelStyle,
                                                     ),
                                                   ),
                                                 ),
                                                 // Subtotal values
                                                 ...game.players.map((player) {
                                                   return Container(
-                                                    width: _getColumnWidth(player),
+                                                    width: columnWidth(player),
                                                                                                       child: Padding(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4) * metrics.scale,
                                                     child: Text(
                                                       '${_calculateRoundSubtotal(round, player)}',
-                                                      style: const TextStyle(
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 16,
-                                                        color: Color(0xFF2C2C2C),
-                                                      ),
+                                                      style: metrics.totalStyle,
                                                       textAlign: TextAlign.end,
                                                     ),
                                                   ),
@@ -1149,12 +1406,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                           );
                                         } else {
                                           // Scores row
-                                          final maxScores = game.players.fold<int>(0, (max, player) {
-                                            final playerScores = round.scores[player.id] ?? [];
-                                            return playerScores.length > max ? playerScores.length : max;
-                                          });
-                                          
-                                          final rowHeight = math.max(isEditMode ? 80.0 : 60.0, maxScores * 22.0);
+                                          final rowHeight = metrics.scoreRowHeight(round, game.players, isEditMode);
                                           
                                           return Container(
                                             height: rowHeight,
@@ -1162,7 +1414,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                               children: [
                                                 // Round label
                                                 Container(
-                                                  width: 100,
+                                                  width: metrics.labelColumnWidth,
                                                   child: Center(
                                                     child: isEditMode
                                                         ? Column(
@@ -1170,18 +1422,14 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                                             children: [
                                                               Text(
                                                                 'Round ${round.roundNumber}',
-                                                                style: const TextStyle(
-                                                                  fontWeight: FontWeight.bold,
-                                                                  fontSize: 14,
-                                                                  color: Color(0xFF2C2C2C),
-                                                                ),
+                                                                style: metrics.labelStyle,
                                                               ),
                                                               const SizedBox(height: 1),
                                                               CupertinoButton(
                                                                 padding: EdgeInsets.zero,
-                                                                child: const Icon(
+                                                                child: Icon(
                                                                   CupertinoIcons.delete,
-                                                                  size: 16,
+                                                                  size: metrics.iconSize,
                                                                   color: CupertinoColors.destructiveRed,
                                                                 ),
                                                                 onPressed: () => _deleteRound(round),
@@ -1190,65 +1438,41 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                                                           )
                                                         : Text(
                                                             'Round ${round.roundNumber}',
-                                                            style: const TextStyle(
-                                                              fontWeight: FontWeight.bold,
-                                                              fontSize: 14,
-                                                              color: Color(0xFF2C2C2C),
-                                                            ),
+                                                            style: metrics.labelStyle,
                                                           ),
                                                   ),
                                                 ),
                                                 // Score cells
                                                 ...game.players.map((player) {
                                                   final playerScores = round.scores[player.id] ?? [];
-                                                  return Container(
-                                                    width: _getColumnWidth(player),
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-
-                                                    child: Row(
-                                                      crossAxisAlignment: CrossAxisAlignment.center,
-                                                      children: [
-                                                        // Add score button on the left
-                                                        GestureDetector(
-                                                          onTap: () => _addScore(round, player),
-                                                          child: const Icon(
-                                                            CupertinoIcons.plus_circle,
-                                                            size: 20,
-                                                            color: Color(0xFF8B8B8B),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(width: 8),
-                                                        // Scores on the right
-                                                        Expanded(
-                                                          child: Column(
-                                                            crossAxisAlignment: CrossAxisAlignment.end,
-                                                            mainAxisAlignment: MainAxisAlignment.start,
-                                                            children: [
-                                                              // Show individual scores with edit functionality
-                                                              if (playerScores.isNotEmpty)
-                                                                ...playerScores.asMap().entries.map((scoreEntry) {
-                                                                  final scoreIndex = scoreEntry.key;
-                                                                  final score = scoreEntry.value;
-                                                                  return GestureDetector(
-                                                                    onTap: () => _editScore(round, player, scoreIndex),
-                                                                    child: Container(
-                                                                      padding: const EdgeInsets.symmetric(vertical: 0.5),
-                                                                      child: Text(
-                                                                        '${score.score}',
-                                                                        style: const TextStyle(
-                                                                          fontSize: 16,
-                                                                          fontWeight: FontWeight.w500,
-                                                                          color: Color(0xFF2C2C2C),
-                                                                        ),
-                                                                        textAlign: TextAlign.end,
-                                                                      ),
-                                                                    ),
-                                                                  );
-                                                                }).toList(),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      ],
+                                                  // Tapping anywhere in the cell adds a score; tapping an existing score edits it
+                                                  return GestureDetector(
+                                                    behavior: HitTestBehavior.opaque,
+                                                    onTap: () => _addScore(round, player),
+                                                    child: Container(
+                                                      width: columnWidth(player),
+                                                      padding: metrics.scoreCellPadding,
+                                                      child: Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                                        mainAxisAlignment: MainAxisAlignment.start,
+                                                        children: [
+                                                          ...playerScores.asMap().entries.map((scoreEntry) {
+                                                            final scoreIndex = scoreEntry.key;
+                                                            final score = scoreEntry.value;
+                                                            return GestureDetector(
+                                                              onTap: () => _editScore(round, player, scoreIndex),
+                                                              child: SizedBox(
+                                                                height: metrics.scoreLineHeight,
+                                                                child: Text(
+                                                                  '${score.score}',
+                                                                  style: metrics.scoreStyle,
+                                                                  textAlign: TextAlign.end,
+                                                                ),
+                                                              ),
+                                                            );
+                                                          }),
+                                                        ],
+                                                      ),
                                                     ),
                                                   );
                                                 }).toList(),
@@ -1269,11 +1493,11 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFEFEFE),
+                    decoration: BoxDecoration(
+                      color: metrics.paperColor,
                       border: Border(
                         top: BorderSide(
-                          color: Color(0xFF2C2C2C),
+                          color: metrics.inkColor,
                           width: 1.0,
                         ),
                       ),
@@ -1306,33 +1530,137 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 }
 
+// Score table colors for light and dark mode
+const CupertinoDynamicColor scoreSheetInk = CupertinoDynamicColor.withBrightness(
+  color: Color(0xFF2C2C2C),
+  darkColor: Color(0xFFE5E5EA),
+);
+const CupertinoDynamicColor scoreSheetPaper = CupertinoDynamicColor.withBrightness(
+  color: Color(0xFFFEFEFE),
+  darkColor: Color(0xFF1C1C1E),
+);
+
+// Sizes and colors for the score table, with sizes derived from the score font
+// size and the device's text size setting. The table and its grid lines both
+// read from here so they always agree. Sizes match the original fixed layout at
+// 16pt with no system text scaling.
+class ScoreSheetMetrics {
+  static const double defaultFontSize = 16.0;
+
+  // Delete buttons keep the platform's minimum tap target regardless of text size
+  static const double _deleteButtonHeight = 44.0;
+
+  final double fontSize;
+  final TextScaler textScaler;
+  // Text and grid lines
+  final Color inkColor;
+  // Table background
+  final Color paperColor;
+
+  const ScoreSheetMetrics({
+    this.fontSize = defaultFontSize,
+    this.textScaler = TextScaler.noScaling,
+    this.inkColor = const Color(0xFF2C2C2C),
+    this.paperColor = const Color(0xFFFEFEFE),
+  });
+
+  // Metrics for the current text size setting and light or dark mode
+  factory ScoreSheetMetrics.of(BuildContext context, {required double fontSize}) {
+    return ScoreSheetMetrics(
+      fontSize: fontSize,
+      textScaler: MediaQuery.textScalerOf(context),
+      inkColor: scoreSheetInk.resolveFrom(context),
+      paperColor: scoreSheetPaper.resolveFrom(context),
+    );
+  }
+
+  // How much larger everything is than the original 16pt layout
+  double get scale => textScaler.scale(fontSize) / defaultFontSize;
+
+  double get scoreLineHeight => 22.0 * scale;
+  EdgeInsets get scoreCellPadding => const EdgeInsets.fromLTRB(8, 6, 8, 2) * scale;
+  double get labelColumnWidth => 100.0 * scale;
+  double get totalRowHeight => 40.0 * scale;
+  double get minColumnWidth => 64.0 * scale;
+  double get maxNameWidth => 110.0 * scale;
+  double get iconSize => 16.0 * scale;
+
+  // Room for a two-line team name, plus a delete button in edit mode
+  double headerHeight(bool isEditMode) =>
+      60.0 * scale + (isEditMode ? _deleteButtonHeight - 14.0 : 0.0);
+
+  // Unscaled sizes: Text widgets apply the device's text scaling themselves
+  TextStyle get scoreStyle => TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.w500,
+        color: inkColor,
+      );
+  TextStyle get totalStyle => TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.bold,
+        color: inkColor,
+      );
+  TextStyle get labelStyle => TextStyle(
+        fontSize: fontSize * 14.0 / defaultFontSize,
+        fontWeight: FontWeight.bold,
+        color: inkColor,
+      );
+
+  // Height of a round's scores row: one line per score in the fullest cell (at
+  // least one), plus a blank line beneath for the next score.
+  double scoreRowHeight(Round round, List<Player> players, bool isEditMode) {
+    final maxScores = players.fold<int>(0, (max, player) {
+      final playerScores = round.scores[player.id] ?? [];
+      return playerScores.length > max ? playerScores.length : max;
+    });
+    final contentHeight = (math.max(maxScores, 1) + 1) * scoreLineHeight + scoreCellPadding.vertical;
+    // Edit mode needs room for the round label and its delete button
+    return isEditMode
+        ? math.max(_deleteButtonHeight + 36.0 * scale, contentHeight)
+        : contentHeight;
+  }
+
+  // Width of a single line of text as it will be drawn
+  double textWidth(String text, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+    );
+    painter.layout();
+    return painter.width;
+  }
+}
+
 class TableGridPainter extends CustomPainter {
   final List<Player> players;
   final List<Round> rounds;
   final double Function(Player) getColumnWidth;
   final bool isEditMode;
+  final ScoreSheetMetrics metrics;
 
   TableGridPainter({
     required this.players,
     required this.rounds,
     required this.getColumnWidth,
     required this.isEditMode,
+    required this.metrics,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF2C2C2C)
+      ..color = metrics.inkColor
       ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
 
     final boldPaint = Paint()
-      ..color = const Color(0xFF2C2C2C)
+      ..color = metrics.inkColor
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
     // Calculate column positions
-    double currentX = 100.0; // First column (round labels) is 100px wide
+    double currentX = metrics.labelColumnWidth; // First column holds the round labels
     
     // Draw vertical lines (excluding the rightmost line)
     for (int i = 0; i < players.length; i++) {
@@ -1349,8 +1677,7 @@ class TableGridPainter extends CustomPainter {
     }
 
     // Draw horizontal lines
-    final headerHeight = isEditMode ? 90.0 : 60.0;
-    double currentY = headerHeight; // Header height
+    double currentY = metrics.headerHeight(isEditMode);
     
     // Header bottom border (bold)
     canvas.drawLine(
@@ -1373,9 +1700,8 @@ class TableGridPainter extends CustomPainter {
           paint,
         );
         
-        // Fixed height for subtotal row since it only contains one value
-        final rowHeight = 40.0;
-        currentY += rowHeight;
+        // Subtotal row only ever holds one value
+        currentY += metrics.totalRowHeight;
         
         // Only draw bottom border if this isn't the last subtotal row
         if (i < rounds.length * 2 - 1) {
@@ -1387,13 +1713,7 @@ class TableGridPainter extends CustomPainter {
         }
       } else {
         // Scores row
-        final maxScores = players.fold<int>(0, (max, player) {
-          final playerScores = round.scores[player.id] ?? [];
-          return playerScores.length > max ? playerScores.length : max;
-        });
-        
-        final rowHeight = math.max(isEditMode ? 80.0 : 60.0, maxScores * 22.0);
-        currentY += rowHeight;
+        currentY += metrics.scoreRowHeight(round, players, isEditMode);
       }
     }
   }
