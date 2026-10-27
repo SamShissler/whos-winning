@@ -10,12 +10,12 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:scoresheet_app/main.dart';
+import 'package:whos_winning/main.dart';
 
 void main() {
   testWidgets('create a game and record a score', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ScoresheetApp());
+    await tester.pumpWidget(const WhosWinningApp());
     await tester.pumpAndSettle();
 
     expect(find.text('No games yet'), findsOneWidget);
@@ -86,7 +86,7 @@ void main() {
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ScoresheetApp());
+    await tester.pumpWidget(const WhosWinningApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(CupertinoIcons.add));
@@ -128,7 +128,7 @@ void main() {
 
   testWidgets('font size setting is saved and sizes the score table', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ScoresheetApp());
+    await tester.pumpWidget(const WhosWinningApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(CupertinoIcons.settings));
@@ -185,7 +185,7 @@ void main() {
 
   testWidgets('appearance setting switches to dark mode and is saved', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ScoresheetApp());
+    await tester.pumpWidget(const WhosWinningApp());
     await tester.pumpAndSettle();
 
     Brightness currentBrightness() =>
@@ -230,16 +230,54 @@ void main() {
 
   testWidgets('saved appearance is restored on launch', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({'appearance': 'dark'});
-    await tester.pumpWidget(const ScoresheetApp());
+    await tester.pumpWidget(const WhosWinningApp());
     await tester.pumpAndSettle();
 
     final screen = tester.element(find.byType(CupertinoPageScaffold));
     expect(CupertinoTheme.brightnessOf(screen), Brightness.dark);
   });
 
+  testWidgets('wide table scrolls sideways from the empty space below it', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const WhosWinningApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField).last, 'Friday Cards');
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Friday Cards'));
+    await tester.pumpAndSettle();
+
+    // Enough teams to make the table wider than the 800px test screen
+    for (var i = 1; i <= 10; i++) {
+      await tester.tap(find.byIcon(CupertinoIcons.person_add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(CupertinoTextField), 'Team number $i');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text('Add Round').first);
+    await tester.pumpAndSettle();
+
+    final horizontalScroll = find.byWidgetPredicate(
+      (widget) => widget is Scrollable && widget.axisDirection == AxisDirection.right,
+    );
+    double scrollOffset() => tester.state<ScrollableState>(horizontalScroll).position.pixels;
+    expect(scrollOffset(), 0);
+
+    // Swipe left just above the bottom bar, well below the one-round table
+    final bottomBar = tester.getTopLeft(find.text('Add Round'));
+    await tester.dragFrom(Offset(600, bottomBar.dy - 60), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+
+    expect(scrollOffset(), greaterThan(0));
+  });
+
   testWidgets('swipe to delete a game from the list', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ScoresheetApp());
+    await tester.pumpWidget(const WhosWinningApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(CupertinoIcons.add));

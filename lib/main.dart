@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 void main() {
-  runApp(const ScoresheetApp());
+  runApp(const WhosWinningApp());
 }
 
 enum AppearanceMode { system, light, dark }
@@ -50,14 +50,14 @@ class AppSettings extends ChangeNotifier {
   }
 }
 
-class ScoresheetApp extends StatefulWidget {
-  const ScoresheetApp({super.key});
+class WhosWinningApp extends StatefulWidget {
+  const WhosWinningApp({super.key});
 
   @override
-  State<ScoresheetApp> createState() => _ScoresheetAppState();
+  State<WhosWinningApp> createState() => _WhosWinningAppState();
 }
 
-class _ScoresheetAppState extends State<ScoresheetApp> {
+class _WhosWinningAppState extends State<WhosWinningApp> {
   final AppSettings _settings = AppSettings();
 
   @override
@@ -77,7 +77,7 @@ class _ScoresheetAppState extends State<ScoresheetApp> {
     return ListenableBuilder(
       listenable: _settings,
       builder: (context, _) => CupertinoApp(
-        title: 'Scoresheet',
+        title: "Who's Winning?",
         theme: CupertinoThemeData(
           primaryColor: CupertinoColors.systemBlue,
           brightness: _settings.brightness,
@@ -1288,200 +1288,210 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                           )
                         : Container(
                             color: metrics.paperColor,
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.vertical,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child:                                 CustomPaint(
-                                  painter: TableGridPainter(
-                                    players: game.players,
-                                    rounds: game.rounds,
-                                    getColumnWidth: columnWidth,
-                                    isEditMode: isEditMode,
-                                    metrics: metrics,
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      // Header row with team names
-                                      Container(
-                                        height: metrics.headerHeight(isEditMode),
-                                        child: Row(
+                            child: LayoutBuilder(
+                              builder: (context, viewport) => SingleChildScrollView(
+                                scrollDirection: Axis.vertical,
+                                // Fill the space between the bars so horizontal swipes
+                                // work below the table too, not just on it
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(minHeight: viewport.maxHeight),
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Align(
+                                      alignment: Alignment.topLeft,
+                                      child: CustomPaint(
+                                        painter: TableGridPainter(
+                                          players: game.players,
+                                          rounds: game.rounds,
+                                          getColumnWidth: columnWidth,
+                                          isEditMode: isEditMode,
+                                          metrics: metrics,
+                                        ),
+                                        child: Column(
                                           children: [
-                                            // Empty corner cell
+                                            // Header row with team names
                                             Container(
-                                              width: metrics.labelColumnWidth,
-                                              child: Center(
-                                                child: Text(
-                                                  '',
-                                                  style: metrics.totalStyle,
-                                                ),
+                                              height: metrics.headerHeight(isEditMode),
+                                              child: Row(
+                                                children: [
+                                                  // Empty corner cell
+                                                  Container(
+                                                    width: metrics.labelColumnWidth,
+                                                    child: Center(
+                                                      child: Text(
+                                                        '',
+                                                        style: metrics.totalStyle,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  // Team name columns
+                                                  ...game.players.map((player) {
+                                                    return Container(
+                                                      width: columnWidth(player),
+                                                      child: Center(
+                                                        child: isEditMode
+                                                            ? Column(
+                                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                                children: [
+                                                                  Text(
+                                                                    player.name.length > 20 
+                                                                        ? '${player.name.substring(0, 20)}...' 
+                                                                        : player.name,
+                                                                    style: metrics.totalStyle,
+                                                                    textAlign: TextAlign.center,
+                                                                    maxLines: 2,
+                                                                    overflow: TextOverflow.ellipsis,
+                                                                  ),
+                                                                  const SizedBox(height: 1),
+                                                                  CupertinoButton(
+                                                                    padding: EdgeInsets.zero,
+                                                                    child: Icon(
+                                                                      CupertinoIcons.delete,
+                                                                      size: metrics.iconSize,
+                                                                      color: CupertinoColors.destructiveRed,
+                                                                    ),
+                                                                    onPressed: () => _deleteTeam(player),
+                                                                  ),
+                                                                ],
+                                                              )
+                                                            : Text(
+                                                                player.name.length > 20 
+                                                                        ? '${player.name.substring(0, 20)}...' 
+                                                                        : player.name,
+                                                                style: metrics.totalStyle,
+                                                                textAlign: TextAlign.center,
+                                                                maxLines: 2,
+                                                                overflow: TextOverflow.ellipsis,
+                                                              ),
+                                                      ),
+                                                    );
+                                                  }).toList(),
+                                                ],
                                               ),
                                             ),
-                                            // Team name columns
-                                            ...game.players.map((player) {
-                                              return Container(
-                                                width: columnWidth(player),
-                                                child: Center(
-                                                  child: isEditMode
-                                                      ? Column(
-                                                          mainAxisAlignment: MainAxisAlignment.center,
-                                                          children: [
-                                                            Text(
-                                                              player.name.length > 20 
-                                                                  ? '${player.name.substring(0, 20)}...' 
-                                                                  : player.name,
-                                                              style: metrics.totalStyle,
-                                                              textAlign: TextAlign.center,
-                                                              maxLines: 2,
-                                                              overflow: TextOverflow.ellipsis,
-                                                            ),
-                                                            const SizedBox(height: 1),
-                                                            CupertinoButton(
-                                                              padding: EdgeInsets.zero,
-                                                              child: Icon(
-                                                                CupertinoIcons.delete,
-                                                                size: metrics.iconSize,
-                                                                color: CupertinoColors.destructiveRed,
-                                                              ),
-                                                              onPressed: () => _deleteTeam(player),
-                                                            ),
-                                                          ],
-                                                        )
-                                                      : Text(
-                                                          player.name.length > 20 
-                                                                  ? '${player.name.substring(0, 20)}...' 
-                                                                  : player.name,
-                                                          style: metrics.totalStyle,
-                                                          textAlign: TextAlign.center,
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow.ellipsis,
+                                      
+                                            // Rounds content
+                                            ...List.generate(game.rounds.length * 2, (index) {
+                                              final roundIndex = index ~/ 2;
+                                              final isSubtotal = index % 2 == 1;
+                                              final round = game.rounds[roundIndex];
+                                      
+                                              if (isSubtotal) {
+                                                // Subtotal row - fixed height since it only contains one value
+                                                final rowHeight = metrics.totalRowHeight;
+                                          
+                                                return Container(
+                                                  height: rowHeight,
+                                                  child: Row(
+                                                    children: [
+                                                      // Subtotal label
+                                                      Container(
+                                                        width: metrics.labelColumnWidth,
+                                                        child: Center(
+                                                          child: Text(
+                                                            'Total',
+                                                            style: metrics.labelStyle,
+                                                          ),
                                                         ),
-                                                ),
-                                              );
-                                            }).toList(),
+                                                      ),
+                                                      // Subtotal values
+                                                      ...game.players.map((player) {
+                                                        return Container(
+                                                          width: columnWidth(player),
+                                                                                                            child: Padding(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4) * metrics.scale,
+                                                          child: Text(
+                                                            '${_calculateRoundSubtotal(round, player)}',
+                                                            style: metrics.totalStyle,
+                                                            textAlign: TextAlign.end,
+                                                          ),
+                                                        ),
+                                                        );
+                                                      }).toList(),
+                                                    ],
+                                                  ),
+                                                );
+                                              } else {
+                                                // Scores row
+                                                final rowHeight = metrics.scoreRowHeight(round, game.players, isEditMode);
+                                          
+                                                return Container(
+                                                  height: rowHeight,
+                                                  child: Row(
+                                                    children: [
+                                                      // Round label
+                                                      Container(
+                                                        width: metrics.labelColumnWidth,
+                                                        child: Center(
+                                                          child: isEditMode
+                                                              ? Column(
+                                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                                  children: [
+                                                                    Text(
+                                                                      'Round ${round.roundNumber}',
+                                                                      style: metrics.labelStyle,
+                                                                    ),
+                                                                    const SizedBox(height: 1),
+                                                                    CupertinoButton(
+                                                                      padding: EdgeInsets.zero,
+                                                                      child: Icon(
+                                                                        CupertinoIcons.delete,
+                                                                        size: metrics.iconSize,
+                                                                        color: CupertinoColors.destructiveRed,
+                                                                      ),
+                                                                      onPressed: () => _deleteRound(round),
+                                                                    ),
+                                                                  ],
+                                                                )
+                                                              : Text(
+                                                                  'Round ${round.roundNumber}',
+                                                                  style: metrics.labelStyle,
+                                                                ),
+                                                        ),
+                                                      ),
+                                                      // Score cells
+                                                      ...game.players.map((player) {
+                                                        final playerScores = round.scores[player.id] ?? [];
+                                                        // Tapping anywhere in the cell adds a score; tapping an existing score edits it
+                                                        return GestureDetector(
+                                                          behavior: HitTestBehavior.opaque,
+                                                          onTap: () => _addScore(round, player),
+                                                          child: Container(
+                                                            width: columnWidth(player),
+                                                            padding: metrics.scoreCellPadding,
+                                                            child: Column(
+                                                              crossAxisAlignment: CrossAxisAlignment.end,
+                                                              mainAxisAlignment: MainAxisAlignment.start,
+                                                              children: [
+                                                                ...playerScores.asMap().entries.map((scoreEntry) {
+                                                                  final scoreIndex = scoreEntry.key;
+                                                                  final score = scoreEntry.value;
+                                                                  return GestureDetector(
+                                                                    onTap: () => _editScore(round, player, scoreIndex),
+                                                                    child: SizedBox(
+                                                                      height: metrics.scoreLineHeight,
+                                                                      child: Text(
+                                                                        '${score.score}',
+                                                                        style: metrics.scoreStyle,
+                                                                        textAlign: TextAlign.end,
+                                                                      ),
+                                                                    ),
+                                                                  );
+                                                                }),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }).toList(),
+                                                    ],
+                                                  ),
+                                                );
+                                              }
+                                            }),
                                           ],
                                         ),
                                       ),
-                                      
-                                      // Rounds content
-                                      ...List.generate(game.rounds.length * 2, (index) {
-                                        final roundIndex = index ~/ 2;
-                                        final isSubtotal = index % 2 == 1;
-                                        final round = game.rounds[roundIndex];
-                                      
-                                        if (isSubtotal) {
-                                          // Subtotal row - fixed height since it only contains one value
-                                          final rowHeight = metrics.totalRowHeight;
-                                          
-                                          return Container(
-                                            height: rowHeight,
-                                            child: Row(
-                                              children: [
-                                                // Subtotal label
-                                                Container(
-                                                  width: metrics.labelColumnWidth,
-                                                  child: Center(
-                                                    child: Text(
-                                                      'Total',
-                                                      style: metrics.labelStyle,
-                                                    ),
-                                                  ),
-                                                ),
-                                                // Subtotal values
-                                                ...game.players.map((player) {
-                                                  return Container(
-                                                    width: columnWidth(player),
-                                                                                                      child: Padding(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4) * metrics.scale,
-                                                    child: Text(
-                                                      '${_calculateRoundSubtotal(round, player)}',
-                                                      style: metrics.totalStyle,
-                                                      textAlign: TextAlign.end,
-                                                    ),
-                                                  ),
-                                                  );
-                                                }).toList(),
-                                              ],
-                                            ),
-                                          );
-                                        } else {
-                                          // Scores row
-                                          final rowHeight = metrics.scoreRowHeight(round, game.players, isEditMode);
-                                          
-                                          return Container(
-                                            height: rowHeight,
-                                            child: Row(
-                                              children: [
-                                                // Round label
-                                                Container(
-                                                  width: metrics.labelColumnWidth,
-                                                  child: Center(
-                                                    child: isEditMode
-                                                        ? Column(
-                                                            mainAxisAlignment: MainAxisAlignment.center,
-                                                            children: [
-                                                              Text(
-                                                                'Round ${round.roundNumber}',
-                                                                style: metrics.labelStyle,
-                                                              ),
-                                                              const SizedBox(height: 1),
-                                                              CupertinoButton(
-                                                                padding: EdgeInsets.zero,
-                                                                child: Icon(
-                                                                  CupertinoIcons.delete,
-                                                                  size: metrics.iconSize,
-                                                                  color: CupertinoColors.destructiveRed,
-                                                                ),
-                                                                onPressed: () => _deleteRound(round),
-                                                              ),
-                                                            ],
-                                                          )
-                                                        : Text(
-                                                            'Round ${round.roundNumber}',
-                                                            style: metrics.labelStyle,
-                                                          ),
-                                                  ),
-                                                ),
-                                                // Score cells
-                                                ...game.players.map((player) {
-                                                  final playerScores = round.scores[player.id] ?? [];
-                                                  // Tapping anywhere in the cell adds a score; tapping an existing score edits it
-                                                  return GestureDetector(
-                                                    behavior: HitTestBehavior.opaque,
-                                                    onTap: () => _addScore(round, player),
-                                                    child: Container(
-                                                      width: columnWidth(player),
-                                                      padding: metrics.scoreCellPadding,
-                                                      child: Column(
-                                                        crossAxisAlignment: CrossAxisAlignment.end,
-                                                        mainAxisAlignment: MainAxisAlignment.start,
-                                                        children: [
-                                                          ...playerScores.asMap().entries.map((scoreEntry) {
-                                                            final scoreIndex = scoreEntry.key;
-                                                            final score = scoreEntry.value;
-                                                            return GestureDetector(
-                                                              onTap: () => _editScore(round, player, scoreIndex),
-                                                              child: SizedBox(
-                                                                height: metrics.scoreLineHeight,
-                                                                child: Text(
-                                                                  '${score.score}',
-                                                                  style: metrics.scoreStyle,
-                                                                  textAlign: TextAlign.end,
-                                                                ),
-                                                              ),
-                                                            );
-                                                          }),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  );
-                                                }).toList(),
-                                              ],
-                                            ),
-                                          );
-                                        }
-                                      }),
-                                    ],
+                                    ),
                                   ),
                                 ),
                               ),

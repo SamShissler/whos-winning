@@ -1,11 +1,11 @@
 {
-    "name": "scoresheet_app",
-    "short_name": "scoresheet_app",
+    "name": "Who's Winning?",
+    "short_name": "Who's Winning?",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#2C0065",
+    "theme_color": "#2C0065",
+    "description": "A score-keeping app for card and board games.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
